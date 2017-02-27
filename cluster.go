@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -322,6 +324,7 @@ func (c *Cluster) Shutdown() error {
 	}
 
 	c.peerManager.savePeers()
+	c.backupState()
 
 	if err := c.api.Shutdown(); err != nil {
 		logger.Errorf("error stopping API: %s", err)
@@ -985,4 +988,31 @@ func (c *Cluster) allocate(hash *cid.Cid) ([]peer.ID, error) {
 
 	// return as many as needed
 	return candidateAllocs[0:needed], nil
+}
+
+func (c *Cluster) backupState() {
+	if c.config.path == "" {
+		logger.Warning("Config.path unset. Skipping backup")
+		return
+	}
+
+	folder := filepath.Dir(c.config.path)
+	err := os.MkdirAll(filepath.Join(folder, "backups"), 0700)
+	if err != nil {
+		logger.Error(err)
+		logger.Error("skipping backup")
+		return
+	}
+	fname := time.Now().UTC().Format("20060102_15:04:05")
+	f, err := os.Create(filepath.Join(folder, "backups", fname))
+	if err != nil {
+		logger.Error(err)
+		return
+	}
+	err = c.state.Snapshot(f)
+	if err != nil {
+		logger.Error(err)
+		return
+	}
+	defer f.Close()
 }
